@@ -17,11 +17,19 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V11 - Arabic Links Only)
+# 0. إعدادات "دليل العصر" (V12 - Multi-Key Turbo)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "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")
+# 🔥 التحديث: قراءة قائمة المفاتيح وفصلها
+KEYS_STRING = os.getenv("OPENROUTER_KEYS", "")
+# إذا لم يجد مفاتيح متعددة، يبحث عن المفتاح الفردي القديم كاحتياط
+if not KEYS_STRING:
+    KEYS_STRING = os.getenv("OPENROUTER_KEY", "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")
+
+# تحويل النص إلى قائمة مفاتيح
+API_KEYS_LIST = [k.strip() for k in KEYS_STRING.split(',') if k.strip()]
+
 WP_DOMAIN = os.getenv("WP_DOMAIN", "https://dalil-alasr.com") 
 WP_USER = os.getenv("WP_USER", "admin")
 WP_APP_PASS = os.getenv("WP_APP_PASS", "xxxx xxxx xxxx xxxx")
@@ -35,7 +43,6 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
-# نماذج قوية
 FREE_TEXT_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -57,8 +64,15 @@ DB_FILE = "/app/data/dalil_history.db" if os.path.exists("/app") else "dalil_his
 FONT_PATH = "/app/data/Roboto-Bold.ttf"
 
 # ==========================================
-# 1. دوال النظام
+# 1. دوال النظام والمفاتيح
 # ==========================================
+def get_random_key():
+    """اختيار مفتاح عشوائي من القائمة لتوزيع الحمل"""
+    if not API_KEYS_LIST:
+        print("❌ Error: No API Keys found!")
+        return "ERROR_NO_KEY"
+    return random.choice(API_KEYS_LIST)
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -146,7 +160,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (شفافة + خط كبير)
+# 3. معالجة الصور (V11 Standard)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -160,7 +174,11 @@ def get_ai_image_url(title):
 def check_image_safety(image_url):
     print(f"   🔍 Checking watermark in original...")
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
+    
+    # استخدام مفتاح عشوائي للفحص
+    current_key = get_random_key()
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
+    
     for i in range(3):
         model = random.choice(FREE_VISION_MODELS)
         try:
@@ -169,7 +187,10 @@ def check_image_safety(image_url):
                 messages=[{"role": "user", "content": [{"type": "text", "text": "Does this image contain ANY text, logos, or watermarks? Answer strictly 'YES' or 'NO'."}, {"type": "image_url", "image_url": {"url": image_url}}]}]
             )
             return "NO" in response.choices[0].message.content.strip().upper()
-        except: time.sleep(1)
+        except Exception as e:
+            # إذا فشل المفتاح، نجرب غيره في المرة القادمة
+            client.api_key = get_random_key()
+            time.sleep(1)
     return False
 
 def apply_branding(image_bytes):
@@ -177,27 +198,21 @@ def apply_branding(image_bytes):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
         
-        # 1. الشريط: ارتفاع 13% من الصورة (أنيق ومناسب)
         bar_height = int(height * 0.13) 
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # 🔥 لون شفاف (أسود بدرجة 120 من 255)
         draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 120))
         
         ensure_font()
         text = WATERMARK_TEXT
-        
-        # 🔥 الخط: 85% من ارتفاع الشريط (كبير جداً وواضح)
         font_size = int(bar_height * 0.85)
         
         try:
             if os.path.exists(FONT_PATH):
                 font = ImageFont.truetype(FONT_PATH, font_size)
-            else:
-                font = ImageFont.load_default()
-        except:
-            font = ImageFont.load_default()
+            else: font = ImageFont.load_default()
+        except: font = ImageFont.load_default()
             
         try:
             left, top, right, bottom = font.getbbox(text)
@@ -208,7 +223,6 @@ def apply_branding(image_bytes):
             text_height = font_size
 
         text_x = (width - text_width) / 2
-        # توسيط دقيق
         text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.1 if 'bottom' in locals() else 0)
         
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
@@ -243,42 +257,20 @@ def upload_final_image(img_url, alt_text):
     except: pass
     return None
 
-def extract_image(entry):
-    if hasattr(entry, 'media_content') and entry.media_content:
-        return entry.media_content[0].get('url') if isinstance(entry.media_content[0], dict) else entry.media_content[0]['url']
-    if hasattr(entry, 'links') and entry.links:
-        for l in entry.links:
-            if 'image' in getattr(l, 'type', ''): return getattr(l, 'href', None)
-    if hasattr(entry, 'summary'):
-        m = re.search(r'<img.*?src=["\']([^"\']+)["\']', entry.summary)
-        if m: return m.group(1)
-    return None
-
 # ==========================================
-# 4. الذكاء الاصطناعي (فلتر الروابط الإنجليزية)
+# 4. الذكاء الاصطناعي (Rotation Logic)
 # ==========================================
 def clean_english_links(text):
-    """
-    تقوم هذه الدالة بفحص النص وإزالة أي رابط يحتوي على نص إنجليزي.
-    مثال: <a href="...">SpaceX</a> سيتم تحويلها إلى SpaceX (نص عادي).
-    بينما: <a href="...">الفضاء</a> ستبقى كما هي.
-    """
-    # نمط للعثور على الروابط: <a ...>TEXT</a>
     link_pattern = re.compile(r'<a [^>]*>(.*?)</a>', re.IGNORECASE)
-    
     def replacer(match):
         anchor_text = match.group(1)
-        # إذا كان النص يحتوي على حروف إنجليزية، احذف الرابط واترك النص
-        if re.search(r'[a-zA-Z]', anchor_text):
-            return anchor_text
-        return match.group(0) # اترك الرابط العربي كما هو
-
+        if re.search(r'[a-zA-Z]', anchor_text): return anchor_text
+        return match.group(0)
     return link_pattern.sub(replacer, text)
 
 def clean_text_output(text):
     text = text.replace("*", "").replace('"', "")
     text = re.sub(r'##\s*(.+)', r'<h2>\1</h2>', text)
-    # تطبيق فلتر الروابط
     text = clean_english_links(text)
     return text
 
@@ -291,20 +283,14 @@ def is_english(text):
 
 def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
-    # 🔥 البرومبت: التأكيد على الروابط العربية فقط
     prompt = f"""
     أنت محرر "دليل العصر". قم بترجمة وإعادة صياغة الخبر التالي إلى مقال عربي احترافي.
-    
     المصدر: "{news_item['title']}" - {news_item['summary']}
-
     ⚠️ قواعد صارمة (Strict Rules):
     1. **العنوان:** عربي حصراً.
     2. **الروابط:** اربط الكلمات **العربية فقط** ببحث الموقع: <a href="{WP_DOMAIN}/?s=الكلمة">الكلمة</a>.
-       - ⛔ ممنوع ربط الكلمات الإنجليزية (مثل Starlink, AI, Crypto). اتركها نصاً عادياً.
     3. **التنسيق:** استخدم HTML فقط.
-
     الهيكلية المطلوبة:
     OUTPUT_TITLE: [عنوان عربي جذاب]
     OUTPUT_BODY:
@@ -318,10 +304,19 @@ def generate_arabic_content_package(news_item):
     META_DESC: [Desc]
     """
     
+    # 💥 هنا السحر: تدوير المفاتيح
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
+        
+        # اختيار مفتاح عشوائي في كل محاولة
+        current_key = get_random_key()
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
+        
         try:
-            print(f"   🤖 Writing V11 Article with: {model}")
+            # عرض جزء من المفتاح للتأكد من التبديل
+            key_preview = current_key[:8] + "..."
+            print(f"   🤖 Writing with: {model} (Key: {key_preview})")
+            
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
@@ -334,14 +329,12 @@ def generate_arabic_content_package(news_item):
                 parts = content.split("OUTPUT_BODY:")
                 if len(parts) > 1:
                     raw_title = parts[0].replace("OUTPUT_TITLE:", "").strip()
-                    # تنظيف العنوان
                     arabic_title = clean_text_output(raw_title)
                     final_body = parts[1].split("OUTPUT_META:")[0].strip()
             
             if not arabic_title or is_english(arabic_title):
                 if not arabic_title: arabic_title = news_item['title']
 
-            # 🔥 تنظيف الجسم (شامل فلتر الروابط الإنجليزية)
             final_body = clean_text_output(final_body)
             
             return arabic_title, final_body
@@ -349,11 +342,12 @@ def generate_arabic_content_package(news_item):
         except Exception as e:
             error_str = str(e)
             if "429" in error_str:
-                print(f"   ⏳ Rate Limit ({model}). Waiting 45s...")
-                time.sleep(45) 
+                print(f"   ⏳ Rate Limit on Key {current_key[:5]}... Switching Key instantly!")
+                # لا ننتظر 45 ثانية هنا! سنحاول فوراً في الحلقة التالية بمفتاح جديد (لأن get_random_key سيختار غيره عشوائياً)
+                time.sleep(2) 
             else:
                 print(f"   ⚠️ AI Error: {e}. Retrying...")
-                time.sleep(5)
+                time.sleep(3)
     return None, None
 
 def publish_to_wp(arabic_title, content, feat_img_id):
@@ -382,7 +376,9 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V11 - Arabic Links Only) Started...")
+    print(f"🚀 Dalil Al-Asr (V12 - Turbo Multi-Key) Started...")
+    print(f"   🔑 Loaded Keys: {len(API_KEYS_LIST)}")
+    
     init_db()
     ensure_font()
     
