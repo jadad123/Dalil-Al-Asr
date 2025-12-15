@@ -446,3 +446,9 @@ def main():
                     
                     time.sleep(10) 
             except Exception as e: print(f"   ⚠️ Feed Error: {str(e)[:50]}")
+        
+        print("💤 Short Rest (10 min)...")
+        time.sleep(600)
+
+if __name__ == "__main__":
+    main()
