@@ -17,17 +17,15 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V12 - Multi-Key Turbo)
+# 0. إعدادات "دليل العصر" (V12.1 - Fixed Function)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 🔥 التحديث: قراءة قائمة المفاتيح وفصلها
+# قراءة المفاتيح المتعددة
 KEYS_STRING = os.getenv("OPENROUTER_KEYS", "")
-# إذا لم يجد مفاتيح متعددة، يبحث عن المفتاح الفردي القديم كاحتياط
 if not KEYS_STRING:
     KEYS_STRING = os.getenv("OPENROUTER_KEY", "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")
 
-# تحويل النص إلى قائمة مفاتيح
 API_KEYS_LIST = [k.strip() for k in KEYS_STRING.split(',') if k.strip()]
 
 WP_DOMAIN = os.getenv("WP_DOMAIN", "https://dalil-alasr.com") 
@@ -67,9 +65,7 @@ FONT_PATH = "/app/data/Roboto-Bold.ttf"
 # 1. دوال النظام والمفاتيح
 # ==========================================
 def get_random_key():
-    """اختيار مفتاح عشوائي من القائمة لتوزيع الحمل"""
     if not API_KEYS_LIST:
-        print("❌ Error: No API Keys found!")
         return "ERROR_NO_KEY"
     return random.choice(API_KEYS_LIST)
 
@@ -160,7 +156,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (V11 Standard)
+# 3. معالجة الصور
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -175,7 +171,6 @@ def check_image_safety(image_url):
     print(f"   🔍 Checking watermark in original...")
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     
-    # استخدام مفتاح عشوائي للفحص
     current_key = get_random_key()
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
     
@@ -188,7 +183,6 @@ def check_image_safety(image_url):
             )
             return "NO" in response.choices[0].message.content.strip().upper()
         except Exception as e:
-            # إذا فشل المفتاح، نجرب غيره في المرة القادمة
             client.api_key = get_random_key()
             time.sleep(1)
     return False
@@ -257,8 +251,20 @@ def upload_final_image(img_url, alt_text):
     except: pass
     return None
 
+# 🔥 الدالة التي كانت مفقودة (تمت إعادتها)
+def extract_image(entry):
+    if hasattr(entry, 'media_content') and entry.media_content:
+        return entry.media_content[0].get('url') if isinstance(entry.media_content[0], dict) else entry.media_content[0]['url']
+    if hasattr(entry, 'links') and entry.links:
+        for l in entry.links:
+            if 'image' in getattr(l, 'type', ''): return getattr(l, 'href', None)
+    if hasattr(entry, 'summary'):
+        m = re.search(r'<img.*?src=["\']([^"\']+)["\']', entry.summary)
+        if m: return m.group(1)
+    return None
+
 # ==========================================
-# 4. الذكاء الاصطناعي (Rotation Logic)
+# 4. الذكاء الاصطناعي (Multi-Key)
 # ==========================================
 def clean_english_links(text):
     link_pattern = re.compile(r'<a [^>]*>(.*?)</a>', re.IGNORECASE)
@@ -304,16 +310,12 @@ def generate_arabic_content_package(news_item):
     META_DESC: [Desc]
     """
     
-    # 💥 هنا السحر: تدوير المفاتيح
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
-        
-        # اختيار مفتاح عشوائي في كل محاولة
         current_key = get_random_key()
         client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
         
         try:
-            # عرض جزء من المفتاح للتأكد من التبديل
             key_preview = current_key[:8] + "..."
             print(f"   🤖 Writing with: {model} (Key: {key_preview})")
             
@@ -336,14 +338,12 @@ def generate_arabic_content_package(news_item):
                 if not arabic_title: arabic_title = news_item['title']
 
             final_body = clean_text_output(final_body)
-            
             return arabic_title, final_body
             
         except Exception as e:
             error_str = str(e)
             if "429" in error_str:
-                print(f"   ⏳ Rate Limit on Key {current_key[:5]}... Switching Key instantly!")
-                # لا ننتظر 45 ثانية هنا! سنحاول فوراً في الحلقة التالية بمفتاح جديد (لأن get_random_key سيختار غيره عشوائياً)
+                print(f"   ⏳ Rate Limit on Key {current_key[:5]}... Switching!")
                 time.sleep(2) 
             else:
                 print(f"   ⚠️ AI Error: {e}. Retrying...")
@@ -376,7 +376,7 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print(f"🚀 Dalil Al-Asr (V12 - Turbo Multi-Key) Started...")
+    print(f"🚀 Dalil Al-Asr (V12.1 - Turbo Multi-Key) Started...")
     print(f"   🔑 Loaded Keys: {len(API_KEYS_LIST)}")
     
     init_db()
