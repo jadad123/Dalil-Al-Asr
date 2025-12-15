@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V9 - Strict Arabic & Huge Watermark)
+# 0. إعدادات "دليل العصر" (V11 - Arabic Links Only)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -35,7 +35,7 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
-# نماذج قوية فقط
+# نماذج قوية
 FREE_TEXT_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -69,7 +69,7 @@ def init_db():
 
 def ensure_font():
     if not os.path.exists(FONT_PATH):
-        print("   📥 Downloading professional font for watermark...")
+        print("   📥 Downloading font for watermark...")
         try:
             url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
             response = requests.get(url, timeout=30)
@@ -146,7 +146,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (العلامة المائية الضخمة V9)
+# 3. معالجة الصور (شفافة + خط كبير)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -177,20 +177,19 @@ def apply_branding(image_bytes):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
         
-        # 🔥 V9 Update: زيادة الحجم
-        # الشريط يأخذ 20% من ارتفاع الصورة (خُمس الصورة)
-        bar_height = int(height * 0.20) 
+        # 1. الشريط: ارتفاع 13% من الصورة (أنيق ومناسب)
+        bar_height = int(height * 0.13) 
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # الشريط الأسود
-        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 255))
+        # 🔥 لون شفاف (أسود بدرجة 120 من 255)
+        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 120))
         
         ensure_font()
         text = WATERMARK_TEXT
         
-        # الخط يأخذ 80% من ارتفاع الشريط (ضخم جداً)
-        font_size = int(bar_height * 0.8)
+        # 🔥 الخط: 85% من ارتفاع الشريط (كبير جداً وواضح)
+        font_size = int(bar_height * 0.85)
         
         try:
             if os.path.exists(FONT_PATH):
@@ -210,7 +209,7 @@ def apply_branding(image_bytes):
 
         text_x = (width - text_width) / 2
         # توسيط دقيق
-        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.15 if 'bottom' in locals() else 0)
+        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.1 if 'bottom' in locals() else 0)
         
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
         
@@ -256,16 +255,35 @@ def extract_image(entry):
     return None
 
 # ==========================================
-# 4. الذكاء الاصطناعي (Strict Arabic Enforcement)
+# 4. الذكاء الاصطناعي (فلتر الروابط الإنجليزية)
 # ==========================================
+def clean_english_links(text):
+    """
+    تقوم هذه الدالة بفحص النص وإزالة أي رابط يحتوي على نص إنجليزي.
+    مثال: <a href="...">SpaceX</a> سيتم تحويلها إلى SpaceX (نص عادي).
+    بينما: <a href="...">الفضاء</a> ستبقى كما هي.
+    """
+    # نمط للعثور على الروابط: <a ...>TEXT</a>
+    link_pattern = re.compile(r'<a [^>]*>(.*?)</a>', re.IGNORECASE)
+    
+    def replacer(match):
+        anchor_text = match.group(1)
+        # إذا كان النص يحتوي على حروف إنجليزية، احذف الرابط واترك النص
+        if re.search(r'[a-zA-Z]', anchor_text):
+            return anchor_text
+        return match.group(0) # اترك الرابط العربي كما هو
+
+    return link_pattern.sub(replacer, text)
+
 def clean_text_output(text):
     text = text.replace("*", "").replace('"', "")
     text = re.sub(r'##\s*(.+)', r'<h2>\1</h2>', text)
+    # تطبيق فلتر الروابط
+    text = clean_english_links(text)
     return text
 
 def is_english(text):
     try:
-        # فحص بسيط: إذا كانت الحروف الإنجليزية أكثر من العربية
         english_chars = len(re.findall(r'[a-zA-Z]', text))
         arabic_chars = len(re.findall(r'[\u0600-\u06FF]', text))
         return english_chars > arabic_chars
@@ -275,18 +293,19 @@ def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
-    # 🔥 البرومبت الصارم V9
+    # 🔥 البرومبت: التأكيد على الروابط العربية فقط
     prompt = f"""
     أنت محرر "دليل العصر". قم بترجمة وإعادة صياغة الخبر التالي إلى مقال عربي احترافي.
     
     المصدر: "{news_item['title']}" - {news_item['summary']}
 
-    ⚠️ قواعد صارمة جداً (Strict Rules):
-    1. **العنوان (TITLE):** يجب أن يكون باللغة العربية حصراً. لا تخرج عنواناً إنجليزياً أبداً.
-    2. **الروابط:** اربط الكلمات المهمة ببحث الموقع: <a href="{WP_DOMAIN}/?s=الكلمة">الكلمة</a>.
-    3. **التنسيق:** استخدم HTML فقط (<h2>, <p>, <ul>). لا تستخدم ## أو **.
+    ⚠️ قواعد صارمة (Strict Rules):
+    1. **العنوان:** عربي حصراً.
+    2. **الروابط:** اربط الكلمات **العربية فقط** ببحث الموقع: <a href="{WP_DOMAIN}/?s=الكلمة">الكلمة</a>.
+       - ⛔ ممنوع ربط الكلمات الإنجليزية (مثل Starlink, AI, Crypto). اتركها نصاً عادياً.
+    3. **التنسيق:** استخدم HTML فقط.
 
-    الهيكلية المطلوبة (التزم بها):
+    الهيكلية المطلوبة:
     OUTPUT_TITLE: [عنوان عربي جذاب]
     OUTPUT_BODY:
     <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li></ul></div>
@@ -302,34 +321,27 @@ def generate_arabic_content_package(news_item):
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
         try:
-            print(f"   🤖 Writing V9 Article with: {model}")
+            print(f"   🤖 Writing V11 Article with: {model}")
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
             
-            # استخراج البيانات بدقة
             arabic_title = ""
             final_body = ""
             
-            # البحث عن العنوان في المخرجات
             if "OUTPUT_TITLE:" in content:
                 parts = content.split("OUTPUT_BODY:")
                 if len(parts) > 1:
                     raw_title = parts[0].replace("OUTPUT_TITLE:", "").strip()
+                    # تنظيف العنوان
                     arabic_title = clean_text_output(raw_title)
                     final_body = parts[1].split("OUTPUT_META:")[0].strip()
             
-            # 🚨 Fallback: إذا فشل الذكاء الاصطناعي في إعطاء عنوان عربي
             if not arabic_title or is_english(arabic_title):
-                print("   ⚠️ Title looks English. Forcing Translation...")
-                # استخدام العنوان الأصلي مؤقتاً وسنترجمه لاحقاً إذا لزم الأمر، 
-                # لكن هنا سنعتمد على أن المحتوى العربي هو الأهم.
-                # الأفضل: استخدام العنوان من المخرجات حتى لو كان فيه مشكلة بسيطة، 
-                # ولكن إذا كان فارغاً نستخدم الأصلي.
                 if not arabic_title: arabic_title = news_item['title']
 
-            # تنظيف الجسم
+            # 🔥 تنظيف الجسم (شامل فلتر الروابط الإنجليزية)
             final_body = clean_text_output(final_body)
             
             return arabic_title, final_body
@@ -345,17 +357,11 @@ def generate_arabic_content_package(news_item):
     return None, None
 
 def publish_to_wp(arabic_title, content, feat_img_id):
-    # فحص أخير: هل العنوان إنجليزي؟ إذا نعم، لا تنشر (أو ترجمه)
-    # لضمان الجودة، سننشر فقط إذا كان المحتوى يبدو عربياً
     if is_english(arabic_title):
         print(f"   🚫 Skipping: Title is English ({arabic_title})")
         return None
 
     meta_desc, tags, cat_id = "", [], 1
-    # محاولة استخراج الميتا من النص (بشكل تقريبي لأننا فصلناها في البرومبت)
-    # في V9، الميتا قد تكون في نهاية النص الأصلي، لكننا فصلنا الـ Body.
-    # للتبسيط، سنعتمد على تصنيف تلقائي بسيط أو فارغ، التركيز على المحتوى.
-    
     tag_ids = [get_or_create_tag_id(t) for t in tags if t]
     
     data = {
@@ -376,7 +382,7 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V9 - Strict Arabic & Huge Watermark) Started...")
+    print("🚀 Dalil Al-Asr (V11 - Arabic Links Only) Started...")
     init_db()
     ensure_font()
     
@@ -440,9 +446,3 @@ def main():
                     
                     time.sleep(10) 
             except Exception as e: print(f"   ⚠️ Feed Error: {str(e)[:50]}")
-        
-        print("💤 Short Rest (10 min)...")
-        time.sleep(600)
-
-if __name__ == "__main__":
-    main()
