@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V4 - Elegant Watermark)
+# 0. إعدادات "دليل العصر" (V5 - Top Summary)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -28,7 +28,7 @@ WP_APP_PASS = os.getenv("WP_APP_PASS", "xxxx xxxx xxxx xxxx")
 
 WP_ENDPOINT = f"{WP_DOMAIN}/wp-json/wp/v2"
 
-# 💎 التعديل الجديد: النص المطلوب
+# النص الذي سيظهر على العلامة المائية
 WATERMARK_TEXT = "dalilaleasr.com"
 
 BROWSER_HEADERS = {
@@ -56,7 +56,7 @@ BLACKLIST_KEYWORDS = [
 ]
 
 DB_FILE = "/app/data/dalil_history.db" if os.path.exists("/app") else "dalil_history.db"
-FONT_PATH = "/app/data/Roboto-Bold.ttf" # مسار الخط الجديد
+FONT_PATH = "/app/data/Roboto-Bold.ttf"
 
 # ==========================================
 # 1. دوال النظام والخطوط
@@ -69,16 +69,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-# دالة لتحميل خط احترافي إذا لم يكن موجوداً
 def ensure_font():
     if not os.path.exists(FONT_PATH):
         print("   📥 Downloading professional font for watermark...")
         try:
-            # رابط مباشر لخط Roboto Bold
             url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
             response = requests.get(url, timeout=30)
             if response.status_code == 200:
-                # التأكد من وجود المجلد
                 os.makedirs(os.path.dirname(FONT_PATH), exist_ok=True)
                 with open(FONT_PATH, 'wb') as f:
                     f.write(response.content)
@@ -152,7 +149,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (العلامة المائية الأنيقة)
+# 3. معالجة الصور (العلامة المائية الكبيرة)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -179,55 +176,41 @@ def check_image_safety(image_url):
     return False
 
 def apply_branding(image_bytes):
-    """تضيف العلامة المائية بشكل أنيق وكبير"""
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
         
-        # 1. إنشاء طبقة شفافة
+        # تصميم الشريط (كبير وواضح)
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        
-        # 2. تصميم الشريط (أسود شفاف في الأسفل)
-        # نزيد الارتفاع قليلاً ليكون أنيقاً
         bar_height = int(height * 0.12) 
         draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 180))
         
-        # 3. إعداد الخط (ديناميكي حسب حجم الصورة)
-        ensure_font() # التأكد من تحميل الخط
-        
+        ensure_font()
         text = WATERMARK_TEXT
-        # حجم الخط سيكون 50% من ارتفاع الشريط
         font_size = int(bar_height * 0.50)
         
         try:
             if os.path.exists(FONT_PATH):
                 font = ImageFont.truetype(FONT_PATH, font_size)
             else:
-                # fallback في حال فشل التحميل
                 font = ImageFont.load_default()
         except:
             font = ImageFont.load_default()
             
-        # 4. حساب مكان النص ليكون في المنتصف تماماً
         try:
-            # استخدام getbbox للحصول على الأبعاد الدقيقة
             left, top, right, bottom = font.getbbox(text)
             text_width = right - left
             text_height = bottom - top
         except:
-            # طريقة قديمة للاحتياط
             text_width = len(text) * (font_size * 0.6)
             text_height = font_size
 
         text_x = (width - text_width) / 2
-        # محاذاة عمودية دقيقة
         text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.2 if 'bottom' in locals() else 0)
         
-        # رسم النص
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
         
-        # دمج وحفظ
         combined = Image.alpha_composite(img, overlay)
         output = io.BytesIO()
         combined.convert("RGB").save(output, format="JPEG", quality=95)
@@ -270,36 +253,45 @@ def extract_image(entry):
     return None
 
 # ==========================================
-# 4. الذكاء الاصطناعي (محتوى طويل + عنوان عربي)
+# 4. الذكاء الاصطناعي (محتوى طويل + ملخص في البداية)
 # ==========================================
 def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
+    # 🔥 البرومبت المحدث V5: الملخص في الأعلى
     prompt = f"""
     بصفتك كبير محرري "دليل العصر"، قم بصياغة مقال صحفي شامل واحترافي باللغة العربية.
     
     المصدر: "{news_item['title']}" - {news_item['summary']}
 
-    المطلوب بدقة:
-    1. **العنوان:** اكتب عنواناً عربياً جذاباً جداً (Clickbait نظيف) في السطر الأول بعد كلمة ARABIC_TITLE:.
-    2. **المحتوى:** مقال طويل (لا يقل عن 800 كلمة). يجب أن تتوسع في الشرح، وتضيف سياقاً، وتحليلاً، حتى لو كان المصدر قصيراً.
-    3. **الهيكلية:**
-       - **المقدمة:** قوية تشد القارئ.
-       - **التفاصيل:** استخدم <h2> للعناوين الفرعية (مثلاً: التفاصيل التقنية، ماذا يعني هذا؟، الخلفية التاريخية).
-       - **اقتباسات:** قم بصياغة اقتباسات افتراضية بناءً على سياق الخبر (مثلاً: "ويرى الخبراء أن...").
-       - **خاتمة:** تلخيص وتطلعات مستقبلية.
-    4. **التنسيق:** استخدم HTML (Direction: RTL).
-       - أضف صندوقاً مميزاً: <div style="background-color: #f1f8e9; border-right: 5px solid #8bc34a; padding: 15px; margin: 20px 0;"><strong>🔍 زاوية تحليلية:</strong> ...</div>
+    الهيكلية المطلوبة (التزم بالترتيب بدقة):
     
-    5. **البيانات الوصفية (في النهاية):**
+    1. **ARABIC_TITLE:** في السطر الأول، اكتب عنواناً عربياً جذاباً جداً.
+    
+    2. **مربع التلخيص (أول شيء في المقال):**
+       - يجب أن يبدأ المقال بـ HTML Box فوراً بعد العنوان.
+       - المحتوى: 4 أو 5 نقاط (Bullet Points) تلخص أهم ما في الخبر.
+       - الكود: <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li>...</ul></div>
+
+    3. **المقدمة:** فقرة تمهيدية قوية تشرح الخبر.
+
+    4. **التفاصيل (جسم المقال):**
+       - مقال طويل (800 كلمة على الأقل).
+       - استخدم عناوين فرعية <h2>.
+       - قم بتحليل الخبر، وإضافة سياق تاريخي أو تقني.
+
+    5. **الخاتمة.**
+
+    6. **البيانات الوصفية (في النهاية):**
        CATEGORY: [News, Politics, Economy, Crypto, Tech, Science, Health, Sports]
        TAGS: (5 كلمات مفتاحية عربية)
-       META_DESC: (وصف دقيق 150 حرف)
+       META_DESC: (وصف دقيق)
 
-    تنسيق الإجابة المطلوب:
-    ARABIC_TITLE: [العنوان العربي هنا]
-    [بداية المقال HTML هنا...]
+    تنسيق الإجابة:
+    ARABIC_TITLE: [العنوان]
+    [مربع التلخيص HTML]
+    [المقدمة وباقي المقال...]
     ...
     CATEGORY: Tech
     TAGS: ...
@@ -309,7 +301,7 @@ def generate_arabic_content_package(news_item):
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
         try:
-            print(f"   🤖 Writing Long Article with: {model}")
+            print(f"   🤖 Writing Long Article + Top Summary with: {model}")
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
@@ -373,9 +365,8 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V4 - Elegant Watermark) Started...")
+    print("🚀 Dalil Al-Asr (V5 - Top Summary) Started...")
     init_db()
-    # تأكد من تحميل الخط في بداية التشغيل
     ensure_font()
     
     feeds = [
