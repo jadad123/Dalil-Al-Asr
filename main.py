@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V5 - Top Summary)
+# 0. إعدادات "دليل العصر" (V7 - Layout Fix & Big Watermark)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -27,8 +27,6 @@ WP_USER = os.getenv("WP_USER", "admin")
 WP_APP_PASS = os.getenv("WP_APP_PASS", "xxxx xxxx xxxx xxxx")
 
 WP_ENDPOINT = f"{WP_DOMAIN}/wp-json/wp/v2"
-
-# النص الذي سيظهر على العلامة المائية
 WATERMARK_TEXT = "dalilaleasr.com"
 
 BROWSER_HEADERS = {
@@ -37,11 +35,11 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
+# نماذج مستقرة
 FREE_TEXT_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen-2.5-72b-instruct:free", 
-    "deepseek/deepseek-chat:free"
+    "microsoft/phi-3-medium-128k-instruct:free"
 ]
 
 FREE_VISION_MODELS = [
@@ -59,7 +57,7 @@ DB_FILE = "/app/data/dalil_history.db" if os.path.exists("/app") else "dalil_his
 FONT_PATH = "/app/data/Roboto-Bold.ttf"
 
 # ==========================================
-# 1. دوال النظام والخطوط
+# 1. دوال النظام
 # ==========================================
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -70,6 +68,7 @@ def init_db():
     conn.close()
 
 def ensure_font():
+    # تحميل الخط ضروري جداً لحجم العلامة المائية
     if not os.path.exists(FONT_PATH):
         print("   📥 Downloading professional font for watermark...")
         try:
@@ -149,7 +148,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (العلامة المائية الكبيرة)
+# 3. معالجة الصور (العلامة المائية الضخمة)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -180,34 +179,43 @@ def apply_branding(image_bytes):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
         
-        # تصميم الشريط (كبير وواضح)
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        bar_height = int(height * 0.12) 
-        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 180))
+        # 1. حساب حجم الخط بناء على "عرض" الصورة ليكون كبيراً وواضحاً
+        # سنجعل الخط يشغل حوالي 50% من عرض الصورة ككل، أو حجم ثابت كبير
+        # الحسبة: العرض / 20 يعطي حجم خط مناسب وضخم
+        target_font_size = int(width * 0.05) 
+        if target_font_size < 20: target_font_size = 20 # حد أدنى
         
+        # 2. إعداد الخط
         ensure_font()
+        font = ImageFont.load_default()
+        if os.path.exists(FONT_PATH):
+            try:
+                font = ImageFont.truetype(FONT_PATH, target_font_size)
+            except: pass
+
         text = WATERMARK_TEXT
-        font_size = int(bar_height * 0.50)
         
-        try:
-            if os.path.exists(FONT_PATH):
-                font = ImageFont.truetype(FONT_PATH, font_size)
-            else:
-                font = ImageFont.load_default()
-        except:
-            font = ImageFont.load_default()
-            
+        # 3. حساب أبعاد النص
         try:
             left, top, right, bottom = font.getbbox(text)
             text_width = right - left
             text_height = bottom - top
         except:
-            text_width = len(text) * (font_size * 0.6)
-            text_height = font_size
+            text_width = len(text) * (target_font_size * 0.5)
+            text_height = target_font_size
 
+        # 4. شريط أسود في الأسفل (ارتفاعه يعتمد على حجم الخط مع مسافة)
+        bar_height = int(text_height * 2.5) 
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        # رسم الشريط
+        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 200)) # أسود داكن
+        
+        # 5. توسيط النص في الشريط
         text_x = (width - text_width) / 2
-        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.2 if 'bottom' in locals() else 0)
+        # معادلة التوسيط العمودي الدقيقة داخل الشريط
+        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.1 if 'bottom' in locals() else 0)
         
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
         
@@ -253,45 +261,42 @@ def extract_image(entry):
     return None
 
 # ==========================================
-# 4. الذكاء الاصطناعي (محتوى طويل + ملخص في البداية)
+# 4. الذكاء الاصطناعي (HTML Fix & Layout Protection)
 # ==========================================
 def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
-    # 🔥 البرومبت المحدث V5: الملخص في الأعلى
+    # 🔥 تحديث هام: تعليمات صارمة لمنع كسر القالب
     prompt = f"""
     بصفتك كبير محرري "دليل العصر"، قم بصياغة مقال صحفي شامل واحترافي باللغة العربية.
     
     المصدر: "{news_item['title']}" - {news_item['summary']}
 
-    الهيكلية المطلوبة (التزم بالترتيب بدقة):
+    تحذير هام جداً (Layout Safety):
+    - لا تستخدم أبداً وسوم <html> أو <body> أو <head>.
+    - تأكد من إغلاق جميع وسوم <div> بدقة. أي وسم مفتوح سيكسر الموقع.
+    - لا تضع صوراً داخل النص.
+
+    الهيكلية المطلوبة:
     
     1. **ARABIC_TITLE:** في السطر الأول، اكتب عنواناً عربياً جذاباً جداً.
     
     2. **مربع التلخيص (أول شيء في المقال):**
-       - يجب أن يبدأ المقال بـ HTML Box فوراً بعد العنوان.
-       - المحتوى: 4 أو 5 نقاط (Bullet Points) تلخص أهم ما في الخبر.
-       - الكود: <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li>...</ul></div>
+       <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li></ul></div>
 
-    3. **المقدمة:** فقرة تمهيدية قوية تشرح الخبر.
+    3. **المقدمة:** فقرة تمهيدية قوية.
 
-    4. **التفاصيل (جسم المقال):**
-       - مقال طويل (800 كلمة على الأقل).
-       - استخدم عناوين فرعية <h2>.
-       - قم بتحليل الخبر، وإضافة سياق تاريخي أو تقني.
+    4. **التفاصيل:** مقال طويل (800 كلمة) مع عناوين فرعية <h2>.
 
-    5. **الخاتمة.**
-
-    6. **البيانات الوصفية (في النهاية):**
+    5. **البيانات الوصفية (في النهاية):**
        CATEGORY: [News, Politics, Economy, Crypto, Tech, Science, Health, Sports]
        TAGS: (5 كلمات مفتاحية عربية)
        META_DESC: (وصف دقيق)
 
     تنسيق الإجابة:
     ARABIC_TITLE: [العنوان]
-    [مربع التلخيص HTML]
-    [المقدمة وباقي المقال...]
+    [HTML Content...]
     ...
     CATEGORY: Tech
     TAGS: ...
@@ -301,11 +306,14 @@ def generate_arabic_content_package(news_item):
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
         try:
-            print(f"   🤖 Writing Long Article + Top Summary with: {model}")
+            print(f"   🤖 Writing Safe Article with: {model}")
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
+            
+            # فلتر أمان إضافي: حذف أي وسوم خطيرة
+            content = content.replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", "")
             
             arabic_title = news_item['title']
             final_body = content
@@ -319,8 +327,13 @@ def generate_arabic_content_package(news_item):
             return arabic_title, final_body
             
         except Exception as e:
-            print(f"   ⚠️ AI Error: {e}. Retrying...")
-            time.sleep(3)
+            error_str = str(e)
+            if "429" in error_str:
+                print(f"   ⏳ Rate Limit ({model}). Waiting 45s...")
+                time.sleep(45) 
+            else:
+                print(f"   ⚠️ AI Error: {e}. Retrying...")
+                time.sleep(5)
     return None, None
 
 def publish_to_wp(arabic_title, content, feat_img_id):
@@ -365,7 +378,7 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V5 - Top Summary) Started...")
+    print("🚀 Dalil Al-Asr (V7 - Layout Fix & Big Watermark) Started...")
     init_db()
     ensure_font()
     
