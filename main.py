@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V7 - Layout Fix & Big Watermark)
+# 0. إعدادات "دليل العصر" (V8 - Final Fixes)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -35,7 +35,7 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
-# نماذج مستقرة
+# نستخدم أقوى النماذج للكتابة النظيفة
 FREE_TEXT_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -68,7 +68,6 @@ def init_db():
     conn.close()
 
 def ensure_font():
-    # تحميل الخط ضروري جداً لحجم العلامة المائية
     if not os.path.exists(FONT_PATH):
         print("   📥 Downloading professional font for watermark...")
         try:
@@ -78,7 +77,6 @@ def ensure_font():
                 os.makedirs(os.path.dirname(FONT_PATH), exist_ok=True)
                 with open(FONT_PATH, 'wb') as f:
                     f.write(response.content)
-                print("   ✅ Font downloaded successfully.")
         except Exception as e:
             print(f"   ⚠️ Could not download font: {e}")
 
@@ -148,7 +146,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور (العلامة المائية الضخمة)
+# 3. معالجة الصور (العلامة المائية الضخمة جداً)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -179,42 +177,39 @@ def apply_branding(image_bytes):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
         
-        # 1. حساب حجم الخط بناء على "عرض" الصورة ليكون كبيراً وواضحاً
-        # سنجعل الخط يشغل حوالي 50% من عرض الصورة ككل، أو حجم ثابت كبير
-        # الحسبة: العرض / 20 يعطي حجم خط مناسب وضخم
-        target_font_size = int(width * 0.05) 
-        if target_font_size < 20: target_font_size = 20 # حد أدنى
+        # 🟢 تعديل الحجم: الشريط يأخذ 18% من ارتفاع الصورة (ضخم)
+        bar_height = int(height * 0.18) 
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
         
-        # 2. إعداد الخط
+        # رسم الشريط
+        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 255)) # أسود كامل الوضوح
+        
         ensure_font()
-        font = ImageFont.load_default()
-        if os.path.exists(FONT_PATH):
-            try:
-                font = ImageFont.truetype(FONT_PATH, target_font_size)
-            except: pass
-
         text = WATERMARK_TEXT
         
-        # 3. حساب أبعاد النص
+        # 🟢 تعديل الخط: حجم الخط 70% من ارتفاع الشريط
+        font_size = int(bar_height * 0.7)
+        
+        try:
+            if os.path.exists(FONT_PATH):
+                font = ImageFont.truetype(FONT_PATH, font_size)
+            else:
+                font = ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+            
+        # حساب أبعاد النص للتوسيط
         try:
             left, top, right, bottom = font.getbbox(text)
             text_width = right - left
             text_height = bottom - top
         except:
-            text_width = len(text) * (target_font_size * 0.5)
-            text_height = target_font_size
+            text_width = len(text) * (font_size * 0.5)
+            text_height = font_size
 
-        # 4. شريط أسود في الأسفل (ارتفاعه يعتمد على حجم الخط مع مسافة)
-        bar_height = int(text_height * 2.5) 
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        
-        # رسم الشريط
-        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 200)) # أسود داكن
-        
-        # 5. توسيط النص في الشريط
         text_x = (width - text_width) / 2
-        # معادلة التوسيط العمودي الدقيقة داخل الشريط
+        # محاذاة عمودية دقيقة داخل الشريط
         text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.1 if 'bottom' in locals() else 0)
         
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
@@ -261,59 +256,55 @@ def extract_image(entry):
     return None
 
 # ==========================================
-# 4. الذكاء الاصطناعي (HTML Fix & Layout Protection)
+# 4. الذكاء الاصطناعي (روابط داخلية + تنظيف العناوين)
 # ==========================================
+def clean_text_output(text):
+    # 1. إزالة نجوم العنوان
+    text = text.replace("*", "").replace('"', "")
+    
+    # 2. تحويل الماركداون (##) إلى HTML (h2)
+    # يبحث عن أي سطر يبدأ بـ ## ويحوله لعنوان
+    text = re.sub(r'##\s*(.+)', r'<h2>\1</h2>', text)
+    
+    return text
+
 def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
-    # 🔥 تحديث هام: تعليمات صارمة لمنع كسر القالب
+    # 🔥 البرومبت: روابط داخلية + عناوين HTML صريحة
     prompt = f"""
-    بصفتك كبير محرري "دليل العصر"، قم بصياغة مقال صحفي شامل واحترافي باللغة العربية.
+    بصفتك كبير محرري "دليل العصر"، قم بصياغة مقال صحفي شامل.
     
     المصدر: "{news_item['title']}" - {news_item['summary']}
 
-    تحذير هام جداً (Layout Safety):
-    - لا تستخدم أبداً وسوم <html> أو <body> أو <head>.
-    - تأكد من إغلاق جميع وسوم <div> بدقة. أي وسم مفتوح سيكسر الموقع.
-    - لا تضع صوراً داخل النص.
+    قواعد صارمة (Strict Rules):
+    1. **لا تستخدم الرموز مثل ## أو ** أبداً.** استخدم HTML فقط (<h2>, <p>).
+    2. **الروابط الداخلية:** عند ذكر كلمات مفتاحية مهمة (مثل: الذهب، بيتكوين، الذكاء الاصطناعي، السعودية)، اجعلها روابط بحث للموقع بهذا الشكل:
+       <a href="{WP_DOMAIN}/?s=الكلمة">الكلمة</a>
+       مثال: ارتفع سعر <a href="{WP_DOMAIN}/?s=الذهب">الذهب</a> اليوم.
+    3. **العنوان:** بدون نجوم أو رموز.
 
-    الهيكلية المطلوبة:
-    
-    1. **ARABIC_TITLE:** في السطر الأول، اكتب عنواناً عربياً جذاباً جداً.
-    
-    2. **مربع التلخيص (أول شيء في المقال):**
-       <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li></ul></div>
-
-    3. **المقدمة:** فقرة تمهيدية قوية.
-
-    4. **التفاصيل:** مقال طويل (800 كلمة) مع عناوين فرعية <h2>.
-
-    5. **البيانات الوصفية (في النهاية):**
-       CATEGORY: [News, Politics, Economy, Crypto, Tech, Science, Health, Sports]
-       TAGS: (5 كلمات مفتاحية عربية)
-       META_DESC: (وصف دقيق)
-
-    تنسيق الإجابة:
-    ARABIC_TITLE: [العنوان]
-    [HTML Content...]
-    ...
-    CATEGORY: Tech
-    TAGS: ...
-    META_DESC: ...
+    الهيكلية:
+    1. ARABIC_TITLE: [عنوان جذاب نظيف]
+    2. [مربع التلخيص HTML]
+    3. المقدمة
+    4. التفاصيل (استخدم <h2> للعناوين)
+    5. الخاتمة
+    6. CATEGORY: ... / TAGS: ... / META_DESC: ...
     """
     
     for i in range(5):
         model = random.choice(FREE_TEXT_MODELS)
         try:
-            print(f"   🤖 Writing Safe Article with: {model}")
+            print(f"   🤖 Writing V8 Article with: {model}")
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
             
-            # فلتر أمان إضافي: حذف أي وسوم خطيرة
-            content = content.replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", "")
+            # تنظيف إضافي بالكود لضمان عدم وجود أخطاء
+            content = clean_text_output(content)
             
             arabic_title = news_item['title']
             final_body = content
@@ -321,7 +312,9 @@ def generate_arabic_content_package(news_item):
             if "ARABIC_TITLE:" in content:
                 parts = content.split("\n", 1)
                 if "ARABIC_TITLE:" in parts[0]:
-                    arabic_title = parts[0].replace("ARABIC_TITLE:", "").strip().replace('"', '')
+                    # تنظيف العنوان من النجوم وأي زيادات
+                    raw_title = parts[0].replace("ARABIC_TITLE:", "").strip()
+                    arabic_title = clean_text_output(raw_title)
                     final_body = parts[1].strip()
             
             return arabic_title, final_body
@@ -359,6 +352,9 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 
     tag_ids = [get_or_create_tag_id(t) for t in tags if t]
     
+    # تنظيف العنوان مرة أخيرة قبل الإرسال
+    arabic_title = arabic_title.replace("*", "").strip()
+
     data = {
         "title": arabic_title,
         "content": content, "status": "publish",
@@ -378,7 +374,7 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V7 - Layout Fix & Big Watermark) Started...")
+    print("🚀 Dalil Al-Asr (V8 - Perfected) Started...")
     init_db()
     ensure_font()
     
