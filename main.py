@@ -17,18 +17,19 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V3 - Long Content)
+# 0. إعدادات "دليل العصر" (V4 - Elegant Watermark)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "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")
-
 WP_DOMAIN = os.getenv("WP_DOMAIN", "https://dalil-alasr.com") 
 WP_USER = os.getenv("WP_USER", "admin")
 WP_APP_PASS = os.getenv("WP_APP_PASS", "xxxx xxxx xxxx xxxx")
 
 WP_ENDPOINT = f"{WP_DOMAIN}/wp-json/wp/v2"
-SITE_NAME_WATERMARK = "Dalil Al-Asr"
+
+# 💎 التعديل الجديد: النص المطلوب
+WATERMARK_TEXT = "dalilaleasr.com"
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -36,7 +37,6 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
-# نستخدم نماذج قوية فقط للكتابة الطويلة
 FREE_TEXT_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -56,9 +56,10 @@ BLACKLIST_KEYWORDS = [
 ]
 
 DB_FILE = "/app/data/dalil_history.db" if os.path.exists("/app") else "dalil_history.db"
+FONT_PATH = "/app/data/Roboto-Bold.ttf" # مسار الخط الجديد
 
 # ==========================================
-# 1. دوال النظام
+# 1. دوال النظام والخطوط
 # ==========================================
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -67,6 +68,23 @@ def init_db():
                  (link TEXT PRIMARY KEY, title TEXT, published_at TEXT)''')
     conn.commit()
     conn.close()
+
+# دالة لتحميل خط احترافي إذا لم يكن موجوداً
+def ensure_font():
+    if not os.path.exists(FONT_PATH):
+        print("   📥 Downloading professional font for watermark...")
+        try:
+            # رابط مباشر لخط Roboto Bold
+            url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                # التأكد من وجود المجلد
+                os.makedirs(os.path.dirname(FONT_PATH), exist_ok=True)
+                with open(FONT_PATH, 'wb') as f:
+                    f.write(response.content)
+                print("   ✅ Font downloaded successfully.")
+        except Exception as e:
+            print(f"   ⚠️ Could not download font: {e}")
 
 def is_published_link(link):
     conn = sqlite3.connect(DB_FILE)
@@ -134,7 +152,7 @@ def get_or_create_tag_id(tag_name):
     return None
 
 # ==========================================
-# 3. معالجة الصور
+# 3. معالجة الصور (العلامة المائية الأنيقة)
 # ==========================================
 def get_ai_image_url(title):
     clean_title = re.sub(r'[^\w\s]', '', title)
@@ -161,27 +179,62 @@ def check_image_safety(image_url):
     return False
 
 def apply_branding(image_bytes):
+    """تضيف العلامة المائية بشكل أنيق وكبير"""
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         width, height = img.size
+        
+        # 1. إنشاء طبقة شفافة
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        bar_height = int(height * 0.08) 
-        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 160))
-        try: 
-            font_size = int(bar_height * 0.6)
-            try: font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-            except: font = ImageFont.load_default()
-        except: return image_bytes
-        text = SITE_NAME_WATERMARK
-        text_x = width / 2 - (len(text) * 5) 
-        text_y = height - (bar_height * 0.8)
+        
+        # 2. تصميم الشريط (أسود شفاف في الأسفل)
+        # نزيد الارتفاع قليلاً ليكون أنيقاً
+        bar_height = int(height * 0.12) 
+        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 180))
+        
+        # 3. إعداد الخط (ديناميكي حسب حجم الصورة)
+        ensure_font() # التأكد من تحميل الخط
+        
+        text = WATERMARK_TEXT
+        # حجم الخط سيكون 50% من ارتفاع الشريط
+        font_size = int(bar_height * 0.50)
+        
+        try:
+            if os.path.exists(FONT_PATH):
+                font = ImageFont.truetype(FONT_PATH, font_size)
+            else:
+                # fallback في حال فشل التحميل
+                font = ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+            
+        # 4. حساب مكان النص ليكون في المنتصف تماماً
+        try:
+            # استخدام getbbox للحصول على الأبعاد الدقيقة
+            left, top, right, bottom = font.getbbox(text)
+            text_width = right - left
+            text_height = bottom - top
+        except:
+            # طريقة قديمة للاحتياط
+            text_width = len(text) * (font_size * 0.6)
+            text_height = font_size
+
+        text_x = (width - text_width) / 2
+        # محاذاة عمودية دقيقة
+        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.2 if 'bottom' in locals() else 0)
+        
+        # رسم النص
         draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
+        
+        # دمج وحفظ
         combined = Image.alpha_composite(img, overlay)
         output = io.BytesIO()
-        combined.convert("RGB").save(output, format="JPEG", quality=92)
+        combined.convert("RGB").save(output, format="JPEG", quality=95)
         return output.getvalue()
-    except: return image_bytes
+    except Exception as e: 
+        print(f"Branding Error: {e}")
+        return image_bytes
 
 def upload_final_image(img_url, alt_text):
     print(f"   ⬆️ Downloading & Branding Image...")
@@ -198,7 +251,7 @@ def upload_final_image(img_url, alt_text):
                 media_id = r_wp.json()['id']
                 seo_data = {
                     "alt_text": alt_text, "title": alt_text, 
-                    "caption": f"حقوق الصورة محفوظة لـ {SITE_NAME_WATERMARK}", "description": alt_text
+                    "caption": f" {WATERMARK_TEXT}", "description": alt_text
                 }
                 requests.post(f"{WP_ENDPOINT}/media/{media_id}", headers=get_auth_header(), json=seo_data)
                 return media_id
@@ -223,7 +276,6 @@ def generate_arabic_content_package(news_item):
     http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
     
-    # 💥 البرومبت الجديد: طلب عنوان عربي + مقال طويل جداً
     prompt = f"""
     بصفتك كبير محرري "دليل العصر"، قم بصياغة مقال صحفي شامل واحترافي باللغة العربية.
     
@@ -259,16 +311,15 @@ def generate_arabic_content_package(news_item):
         try:
             print(f"   🤖 Writing Long Article with: {model}")
             response = client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7 # رفعنا الحرارة للإبداع
+                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
             
-            # استخراج العنوان والمحتوى
-            arabic_title = news_item['title'] # افتراضي
+            arabic_title = news_item['title']
             final_body = content
             
             if "ARABIC_TITLE:" in content:
-                parts = content.split("\n", 1) # فصل السطر الأول
+                parts = content.split("\n", 1)
                 if "ARABIC_TITLE:" in parts[0]:
                     arabic_title = parts[0].replace("ARABIC_TITLE:", "").strip().replace('"', '')
                     final_body = parts[1].strip()
@@ -304,7 +355,7 @@ def publish_to_wp(arabic_title, content, feat_img_id):
     tag_ids = [get_or_create_tag_id(t) for t in tags if t]
     
     data = {
-        "title": arabic_title, # الآن نستخدم العنوان العربي المولد
+        "title": arabic_title,
         "content": content, "status": "publish",
         "categories": [cat_id], "tags": tag_ids, "excerpt": meta_desc,
         "featured_media": feat_img_id,
@@ -322,8 +373,10 @@ def publish_to_wp(arabic_title, content, feat_img_id):
 # 5. المحرك الرئيسي
 # ==========================================
 def main():
-    print("🚀 Dalil Al-Asr (V3 - Long Arabic Content) Started...")
+    print("🚀 Dalil Al-Asr (V4 - Elegant Watermark) Started...")
     init_db()
+    # تأكد من تحميل الخط في بداية التشغيل
+    ensure_font()
     
     feeds = [
         "https://cointelegraph.com/rss",
@@ -358,7 +411,6 @@ def main():
                     
                     print(f"   ⚡ Processing: {entry.title[:40]}...")
                     
-                    # 1. الصورة
                     original_img = extract_image(entry)
                     final_img_url = None
                     if original_img:
@@ -375,7 +427,6 @@ def main():
                     fid = upload_final_image(final_img_url, entry.title)
                     
                     if fid:
-                        # 2. توليد العنوان والمحتوى العربي الطويل
                         arabic_title, content = generate_arabic_content_package({'title': entry.title, 'summary': getattr(entry, 'summary', '')})
                         
                         if content and arabic_title:
