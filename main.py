@@ -17,23 +17,17 @@ from difflib import SequenceMatcher
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# 0. إعدادات "دليل العصر" (V12.1 - Fixed Function)
+# 0. إعدادات النظام (V31 - Stable List)
 # ==========================================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# قراءة المفاتيح المتعددة
-KEYS_STRING = os.getenv("OPENROUTER_KEYS", "")
-if not KEYS_STRING:
-    KEYS_STRING = os.getenv("OPENROUTER_KEY", "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")
+OPENROUTER_KEY = os.getenv("OPENROUTER_KEY", "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")
 
-API_KEYS_LIST = [k.strip() for k in KEYS_STRING.split(',') if k.strip()]
-
-WP_DOMAIN = os.getenv("WP_DOMAIN", "https://dalil-alasr.com") 
-WP_USER = os.getenv("WP_USER", "admin")
-WP_APP_PASS = os.getenv("WP_APP_PASS", "xxxx xxxx xxxx xxxx")
+WP_DOMAIN = os.getenv("WP_DOMAIN", "https://cryptoepochs.com")
+WP_USER = os.getenv("WP_USER", "jad")
+WP_APP_PASS = os.getenv("WP_APP_PASS", "DBy4 QJKf grn2 XsY5 CKm9 jQlD")
 
 WP_ENDPOINT = f"{WP_DOMAIN}/wp-json/wp/v2"
-WATERMARK_TEXT = "dalilaleasr.com"
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -41,34 +35,75 @@ BROWSER_HEADERS = {
     "Referer": "https://google.com"
 }
 
+# === قائمة النماذج المجانية المستقرة (V31) ===
+# تم حذف النماذج التي تسبب مشاكل 404
 FREE_TEXT_MODELS = [
-    "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "microsoft/phi-3-medium-128k-instruct:free"
+    "google/gemini-2.0-flash-exp:free",          # الأقوى والأحدث
+    "meta-llama/llama-3.3-70b-instruct:free",    # مستقر جداً
+    "deepseek/deepseek-chat:free",               # ممتاز للكود والنصوص
+    "qwen/qwen-2.5-72b-instruct:free",           # بديل قوي
+    "meta-llama/llama-3.1-405b-instruct:free",   # الأذكى (قد يكون بطيئاً)
+    "huggingfaceh4/zephyr-7b-beta:free",         # خفيف وسريع
 ]
 
+# === قائمة نماذج الرؤية ===
 FREE_VISION_MODELS = [
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.2-90b-vision-instruct:free",
+    "meta-llama/llama-3.2-11b-vision-instruct:free",
 ]
 
-BLACKLIST_KEYWORDS = [
-    "فيلم", "مسلسل", "أغنية", "فنان", "ممثلة", "رقص", "حفل غنائي", 
-    "سينما", "دراما", "طرب", "ألبوم", "كليب", "فضائيات", 
-    "Movie", "Song", "Actress", "Cinema", "Music Video", "Concert"
-]
+# ==========================================
+# 1. خريطة الصور والأقسام
+# ==========================================
+EMERGENCY_MAP = {
+    "bitcoin": [
+        "https://images.unsplash.com/photo-1621761191319-c6fb62004040?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1596239464385-2800555f68b4?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1518546305927-5a555bb7020d?auto=format&fit=crop&w=1280&q=80"
+    ],
+    "ethereum": [
+        "https://images.unsplash.com/photo-1622630998477-20aa696fab05?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1644361566696-3d442b5b482a?auto=format&fit=crop&w=1280&q=80"
+    ],
+    "regulation": [
+        "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1505664194779-8beaceb93744?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1639322537228-ad71053ade42?auto=format&fit=crop&w=1280&q=80"
+    ],
+    "market": [
+        "https://images.unsplash.com/photo-1611974765270-ca12586343bb?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1642790106117-e829e14a795f?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1280&q=80"
+    ],
+    "security": [
+        "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1280&q=80"
+    ],
+    "default": [
+        "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?auto=format&fit=crop&w=1280&q=80",
+        "https://images.unsplash.com/photo-1620321023374-d1a68fddadb3?auto=format&fit=crop&w=1280&q=80"
+    ]
+}
 
-DB_FILE = "/app/data/dalil_history.db" if os.path.exists("/app") else "dalil_history.db"
-FONT_PATH = "/app/data/Roboto-Bold.ttf"
+CATEGORY_MAP = {
+    "News": 2, "Bitcoin": 2, "Ethereum": 2, "Web3": 2, "Regulation": 2, "Crypto": 2,
+    "Market": 3, "Analysis": 3, "Price": 3, "Trading": 3, "Chart": 3,
+    "DeFi": 4, "DEX": 4, "Swap": 4, "Lending": 4,
+    "Stablecoin": 6, "USDT": 6, "USDC": 6, "Tether": 6,
+    "DAO": 7, "Governance": 7,
+    "Education": 5, "Guide": 5, "Tutorial": 5, "Learn": 5, "How": 5,
+    "Uncategorized": 1
+}
+DEFAULT_CATEGORY_ID = 2
+
+DB_FILE = "/app/data/history.db" if os.path.exists("/app") else "history.db"
 
 # ==========================================
-# 1. دوال النظام والمفاتيح
+# 2. دوال قاعدة البيانات
 # ==========================================
-def get_random_key():
-    if not API_KEYS_LIST:
-        return "ERROR_NO_KEY"
-    return random.choice(API_KEYS_LIST)
-
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -76,19 +111,6 @@ def init_db():
                  (link TEXT PRIMARY KEY, title TEXT, published_at TEXT)''')
     conn.commit()
     conn.close()
-
-def ensure_font():
-    if not os.path.exists(FONT_PATH):
-        print("   📥 Downloading font for watermark...")
-        try:
-            url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
-                os.makedirs(os.path.dirname(FONT_PATH), exist_ok=True)
-                with open(FONT_PATH, 'wb') as f:
-                    f.write(response.content)
-        except Exception as e:
-            print(f"   ⚠️ Could not download font: {e}")
 
 def is_published_link(link):
     conn = sqlite3.connect(DB_FILE)
@@ -105,45 +127,124 @@ def mark_published(link, title):
     conn.commit()
     conn.close()
 
+# ==========================================
+# 3. نظام منع التكرار
+# ==========================================
 def is_duplicate_semantic(new_title):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT title FROM history ORDER BY published_at DESC LIMIT 50")
+    c.execute("SELECT title FROM history ORDER BY published_at DESC LIMIT 30")
     rows = c.fetchall()
     conn.close()
     if not rows: return False
     recent_titles = [row[0] for row in rows if row[0]]
     for existing in recent_titles:
-        if SequenceMatcher(None, new_title.lower(), existing.lower()).ratio() > 0.65:
+        if SequenceMatcher(None, new_title.lower(), existing.lower()).ratio() > 0.75:
             return True
     return False
 
 # ==========================================
-# 2. إدارة الأقسام
+# 4. معالجة الصور (Updated)
+# ==========================================
+def get_smart_image_url(title):
+    clean_title = re.sub(r'[^\w\s]', '', title)
+    words = clean_title.split()[:8]
+    prompt_text = " ".join(words)
+    final_prompt = f"{prompt_text}, crypto news style, futuristic, 8k, cinematic, digital art"
+    encoded_prompt = urllib.parse.quote(final_prompt)
+    seed = int(time.time())
+    return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&nologo=true&seed={seed}&model=flux"
+
+def get_emergency_image_list(title):
+    t = title.lower()
+    key = "default"
+    if "bitcoin" in t or "btc" in t: key = "bitcoin"
+    elif "ethereum" in t or "eth" in t: key = "ethereum"
+    elif any(x in t for x in ["law", "sec", "regulation", "court"]): key = "regulation"
+    elif any(x in t for x in ["hack", "scam", "security", "stolen"]): key = "security"
+    elif any(x in t for x in ["market", "price", "trading", "bull", "bear"]): key = "market"
+    images = EMERGENCY_MAP[key].copy()
+    random.shuffle(images)
+    return images
+
+def check_image_safety(image_url):
+    print(f"   🔍 Checking watermark: {image_url[:40]}...")
+    http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
+    
+    # محاولة 3 مرات
+    for i in range(3):
+        model = random.choice(FREE_VISION_MODELS)
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": [{"type": "text", "text": "Does this image contain ANY text, watermarks, or news logos? Answer strictly 'YES' or 'NO'."}, {"type": "image_url", "image_url": {"url": image_url}}]}]
+            )
+            return "YES" not in response.choices[0].message.content.strip().upper()
+        except:
+            time.sleep(1)
+    return False
+
+def apply_watermark(image_bytes):
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        width, height = img.size
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        bar_height = int(height * 0.08) 
+        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 180))
+        try: font = ImageFont.load_default() 
+        except: return image_bytes
+        text = "CryptoEpochs.com"
+        text_x = width / 2 - 50
+        text_y = height - (bar_height / 1.5)
+        draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
+        combined = Image.alpha_composite(img, overlay)
+        output = io.BytesIO()
+        combined.convert("RGB").save(output, format="JPEG", quality=90)
+        return output.getvalue()
+    except: return image_bytes
+
+# ==========================================
+# 5. توليد المحتوى (More Retries)
+# ==========================================
+def generate_content(news_item):
+    http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY, http_client=http_client)
+    
+    prompt = f"""
+    Act as a crypto analyst. Write an article based on:
+    "{news_item['title']}" - {news_item['summary']}
+    
+    Structure:
+    1. HTML Box: <div style="background-color: #f0f4f8; border-left: 5px solid #3498db; padding: 15px;"><h4>🔥 Key Takeaways</h4><ul><li>...</li></ul></div>
+    2. Body: Use <h2> and <p>.
+    3. Footer: META_DESC: ... TAGS: ... CATEGORY: [Select one: News, Market Analysis, DeFi, Stablecoins, DAOs, Education]
+    """
+    
+    # محاولة 5 مرات بدلاً من 3 لزيادة فرص النجاح
+    for i in range(5):
+        model = random.choice(FREE_TEXT_MODELS)
+        try:
+            print(f"   🤖 Using Model: {model}")
+            response = client.chat.completions.create(
+                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.8
+            )
+            content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
+            return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
+        except Exception as e:
+            print(f"   ⚠️ Text Model ({model}) Failed: {e}. Retrying in 5s...")
+            time.sleep(5) # انتظار أطول لتهدئة السيرفر
+            
+    return None
+
+# ==========================================
+# 6. الرفع والنشر
 # ==========================================
 def get_auth_header():
     clean_pass = WP_APP_PASS.replace(' ', '')
     creds = base64.b64encode(f"{WP_USER}:{clean_pass}".encode()).decode()
     return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
-
-def get_category_id_by_name(cat_name):
-    ARABIC_NAMES = {
-        "News": "أخبار عامة", "Politics": "سياسة", "Economy": "اقتصاد وأعمال",
-        "Crypto": "عملات رقمية", "Tech": "تكنولوجيا وذكاء اصطناعي", 
-        "Health": "صحة وطب", "Science": "علوم وفضاء", "Tutorials": "شروحات وأدلة",
-        "Sports": "رياضة"
-    }
-    final_name = ARABIC_NAMES.get(cat_name, cat_name)
-    try:
-        h = get_auth_header()
-        r = requests.get(f"{WP_ENDPOINT}/categories?search={final_name}", headers=h)
-        if r.status_code == 200 and r.json():
-            return r.json()[0]['id']
-        r = requests.post(f"{WP_ENDPOINT}/categories", headers=h, json={"name": final_name})
-        if r.status_code == 201:
-            return r.json()['id']
-    except: pass
-    return 1
 
 def get_or_create_tag_id(tag_name):
     try:
@@ -155,296 +256,150 @@ def get_or_create_tag_id(tag_name):
     except: pass
     return None
 
-# ==========================================
-# 3. معالجة الصور
-# ==========================================
-def get_ai_image_url(title):
-    clean_title = re.sub(r'[^\w\s]', '', title)
-    words = clean_title.split()[:9]
-    prompt_text = " ".join(words)
-    final_prompt = f"Editorial news photo of {prompt_text}, highly detailed, realistic, 4k, journalism style, no text, no blur"
-    encoded_prompt = urllib.parse.quote(final_prompt)
-    seed = int(time.time())
-    return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&nologo=true&seed={seed}&model=flux"
-
-def check_image_safety(image_url):
-    print(f"   🔍 Checking watermark in original...")
-    http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
-    
-    current_key = get_random_key()
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
-    
-    for i in range(3):
-        model = random.choice(FREE_VISION_MODELS)
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": [{"type": "text", "text": "Does this image contain ANY text, logos, or watermarks? Answer strictly 'YES' or 'NO'."}, {"type": "image_url", "image_url": {"url": image_url}}]}]
-            )
-            return "NO" in response.choices[0].message.content.strip().upper()
-        except Exception as e:
-            client.api_key = get_random_key()
-            time.sleep(1)
-    return False
-
-def apply_branding(image_bytes):
-    try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-        width, height = img.size
-        
-        bar_height = int(height * 0.13) 
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        
-        draw.rectangle([(0, height - bar_height), (width, height)], fill=(0, 0, 0, 120))
-        
-        ensure_font()
-        text = WATERMARK_TEXT
-        font_size = int(bar_height * 0.85)
-        
-        try:
-            if os.path.exists(FONT_PATH):
-                font = ImageFont.truetype(FONT_PATH, font_size)
-            else: font = ImageFont.load_default()
-        except: font = ImageFont.load_default()
-            
-        try:
-            left, top, right, bottom = font.getbbox(text)
-            text_width = right - left
-            text_height = bottom - top
-        except:
-            text_width = len(text) * (font_size * 0.5)
-            text_height = font_size
-
-        text_x = (width - text_width) / 2
-        text_y = height - (bar_height / 2) - (text_height / 2) - (bottom * 0.1 if 'bottom' in locals() else 0)
-        
-        draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
-        
-        combined = Image.alpha_composite(img, overlay)
-        output = io.BytesIO()
-        combined.convert("RGB").save(output, format="JPEG", quality=95)
-        return output.getvalue()
-    except Exception as e: 
-        print(f"Branding Error: {e}")
-        return image_bytes
-
-def upload_final_image(img_url, alt_text):
-    print(f"   ⬆️ Downloading & Branding Image...")
+def upload_image_with_seo(img_url, alt_text):
+    print(f"   ⬆️ Uploading: {alt_text[:20]}...")
     try:
         r_img = requests.get(img_url, headers=BROWSER_HEADERS, timeout=30, verify=False)
         if r_img.status_code == 200:
-            branded_image_data = apply_branding(r_img.content)
-            filename = f"dalil_{int(time.time())}.jpg"
+            final_image_data = apply_watermark(r_img.content)
+            filename = f"img_{int(time.time())}.jpg"
             headers_wp = get_auth_header()
             headers_wp["Content-Disposition"] = f"attachment; filename={filename}"
             headers_wp["Content-Type"] = "image/jpeg"
-            r_wp = requests.post(f"{WP_ENDPOINT}/media", headers=headers_wp, data=branded_image_data)
+            r_wp = requests.post(f"{WP_ENDPOINT}/media", headers=headers_wp, data=final_image_data)
             if r_wp.status_code == 201: 
                 media_id = r_wp.json()['id']
-                seo_data = {
-                    "alt_text": alt_text, "title": alt_text, 
-                    "caption": f" {WATERMARK_TEXT}", "description": alt_text
-                }
+                seo_data = {"alt_text": alt_text, "title": alt_text, "caption": f"Source: CryptoEpochs - {alt_text}", "description": alt_text}
                 requests.post(f"{WP_ENDPOINT}/media/{media_id}", headers=get_auth_header(), json=seo_data)
+                print("   ✅ Image Uploaded.")
                 return media_id
     except: pass
     return None
 
-# 🔥 الدالة التي كانت مفقودة (تمت إعادتها)
-def extract_image(entry):
-    if hasattr(entry, 'media_content') and entry.media_content:
-        return entry.media_content[0].get('url') if isinstance(entry.media_content[0], dict) else entry.media_content[0]['url']
-    if hasattr(entry, 'links') and entry.links:
-        for l in entry.links:
-            if 'image' in getattr(l, 'type', ''): return getattr(l, 'href', None)
-    if hasattr(entry, 'summary'):
-        m = re.search(r'<img.*?src=["\']([^"\']+)["\']', entry.summary)
-        if m: return m.group(1)
-    return None
-
-# ==========================================
-# 4. الذكاء الاصطناعي (Multi-Key)
-# ==========================================
-def clean_english_links(text):
-    link_pattern = re.compile(r'<a [^>]*>(.*?)</a>', re.IGNORECASE)
-    def replacer(match):
-        anchor_text = match.group(1)
-        if re.search(r'[a-zA-Z]', anchor_text): return anchor_text
-        return match.group(0)
-    return link_pattern.sub(replacer, text)
-
-def clean_text_output(text):
-    text = text.replace("*", "").replace('"', "")
-    text = re.sub(r'##\s*(.+)', r'<h2>\1</h2>', text)
-    text = clean_english_links(text)
-    return text
-
-def is_english(text):
-    try:
-        english_chars = len(re.findall(r'[a-zA-Z]', text))
-        arabic_chars = len(re.findall(r'[\u0600-\u06FF]', text))
-        return english_chars > arabic_chars
-    except: return False
-
-def generate_arabic_content_package(news_item):
-    http_client = httpx.Client(verify=False, transport=httpx.HTTPTransport(local_address="0.0.0.0"))
-    
-    prompt = f"""
-    أنت محرر "دليل العصر". قم بترجمة وإعادة صياغة الخبر التالي إلى مقال عربي احترافي.
-    المصدر: "{news_item['title']}" - {news_item['summary']}
-    ⚠️ قواعد صارمة (Strict Rules):
-    1. **العنوان:** عربي حصراً.
-    2. **الروابط:** اربط الكلمات **العربية فقط** ببحث الموقع: <a href="{WP_DOMAIN}/?s=الكلمة">الكلمة</a>.
-    3. **التنسيق:** استخدم HTML فقط.
-    الهيكلية المطلوبة:
-    OUTPUT_TITLE: [عنوان عربي جذاب]
-    OUTPUT_BODY:
-    <div style="background-color: #f1f8e9; border-right: 5px solid #66bb6a; padding: 20px; margin-bottom: 30px; border-radius: 5px;"><h3 style="margin-top: 0; color: #2e7d32;">🔥 خلاصة سريعة:</h3><ul><li>نقطة 1</li><li>نقطة 2</li></ul></div>
-    [مقدمة قوية]
-    [تفاصيل المقال مع عناوين h2]
-    [الخاتمة]
-    OUTPUT_META:
-    CATEGORY: [Category Name]
-    TAGS: [Tags]
-    META_DESC: [Desc]
-    """
-    
-    for i in range(5):
-        model = random.choice(FREE_TEXT_MODELS)
-        current_key = get_random_key()
-        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=current_key, http_client=http_client)
-        
+def publish_to_wp(title, content, feat_img_id, is_generated_image=False):
+    meta_desc, tags, cat_id = "", [], DEFAULT_CATEGORY_ID
+    if "META_DESC:" in content:
         try:
-            key_preview = current_key[:8] + "..."
-            print(f"   🤖 Writing with: {model} (Key: {key_preview})")
-            
-            response = client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
-            )
-            content = response.choices[0].message.content.replace("```html", "").replace("```", "").strip()
-            
-            arabic_title = ""
-            final_body = ""
-            
-            if "OUTPUT_TITLE:" in content:
-                parts = content.split("OUTPUT_BODY:")
-                if len(parts) > 1:
-                    raw_title = parts[0].replace("OUTPUT_TITLE:", "").strip()
-                    arabic_title = clean_text_output(raw_title)
-                    final_body = parts[1].split("OUTPUT_META:")[0].strip()
-            
-            if not arabic_title or is_english(arabic_title):
-                if not arabic_title: arabic_title = news_item['title']
+            parts = content.split("META_DESC:")
+            content = parts[0]
+            rest = parts[1]
+            if "TAGS:" in rest:
+                t_parts = rest.split("TAGS:")
+                meta_desc = t_parts[0].strip()
+                rest = t_parts[1]
+                if "CATEGORY:" in rest:
+                    c_parts = rest.split("CATEGORY:")
+                    tags = [t.strip() for t in c_parts[0].split(',')]
+                    
+                    found_cat = False
+                    for k, v in CATEGORY_MAP.items():
+                        if k.lower() in c_parts[1].lower(): 
+                            cat_id = v
+                            found_cat = True
+                            break
+                    if not found_cat:
+                        cat_id = DEFAULT_CATEGORY_ID
 
-            final_body = clean_text_output(final_body)
-            return arabic_title, final_body
-            
-        except Exception as e:
-            error_str = str(e)
-            if "429" in error_str:
-                print(f"   ⏳ Rate Limit on Key {current_key[:5]}... Switching!")
-                time.sleep(2) 
-            else:
-                print(f"   ⚠️ AI Error: {e}. Retrying...")
-                time.sleep(3)
-    return None, None
+        except: pass
 
-def publish_to_wp(arabic_title, content, feat_img_id):
-    if is_english(arabic_title):
-        print(f"   🚫 Skipping: Title is English ({arabic_title})")
-        return None
-
-    meta_desc, tags, cat_id = "", [], 1
+    if is_generated_image: tags.append("AI Art")
     tag_ids = [get_or_create_tag_id(t) for t in tags if t]
     
+    focus_keyword = tags[0] if tags else "Crypto News"
+    
     data = {
-        "title": arabic_title,
-        "content": content, "status": "publish",
+        "title": title, "content": content, "status": "publish",
         "categories": [cat_id], "tags": tag_ids, "excerpt": meta_desc,
         "featured_media": feat_img_id,
-        "rank_math_focus_keyword": arabic_title,
+        "rank_math_focus_keyword": focus_keyword,
+        "rank_math_description": meta_desc
+    }
+    
+    data["meta"] = { 
+        "rank_math_focus_keyword": focus_keyword,
         "rank_math_description": meta_desc
     }
     
     r = requests.post(f"{WP_ENDPOINT}/posts", headers=get_auth_header(), json=data)
     if r.status_code == 201: return r.json()['link']
-    print(f"   ❌ Publish Failed: {r.status_code}")
+    print(f"   ❌ Publish Failed: {r.status_code} - {r.text[:100]}")
+    return None
+
+def extract_image(entry):
+    if hasattr(entry, 'media_content') and entry.media_content:
+        return entry.media_content[0].get('url') if isinstance(entry.media_content[0], dict) else entry.media_content[0]['url']
+    if hasattr(entry, 'links') and entry.links:
+        for l in entry.links:
+            link_type = getattr(l, 'type', '') or ''
+            if 'image' in link_type: return getattr(l, 'href', None)
+    if hasattr(entry, 'summary') and entry.summary:
+        m = re.search(r'<img.*?src=["\']([^"\']+)["\']', entry.summary)
+        if m: return m.group(1)
+    if hasattr(entry, 'content') and entry.content:
+        for c in entry.content:
+            content_value = getattr(c, 'value', '') or ''
+            m = re.search(r'<img.*?src=["\']([^"\']+)["\']', content_value)
+            if m: return m.group(1)
     return None
 
 # ==========================================
-# 5. المحرك الرئيسي
+# 7. المحرك الرئيسي
 # ==========================================
 def main():
-    print(f"🚀 Dalil Al-Asr (V12.1 - Turbo Multi-Key) Started...")
-    print(f"   🔑 Loaded Keys: {len(API_KEYS_LIST)}")
-    
+    print("🚀 CryptoEpochs V31 (Stable Models) Started...")
+    print(f"   👤 User: {WP_USER}")
     init_db()
-    ensure_font()
-    
     feeds = [
-        "https://cointelegraph.com/rss",
-        "https://decrypt.co/feed",
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "https://sa.investing.com/rss/news.rss",
-        "https://www.cnbcarabia.com/rss/latest-news",
-        "https://techcrunch.com/feed/",
-        "https://www.theverge.com/rss/index.xml",
-        "https://aitnews.com/feed/",
-        "https://wired.com/feed/rss",
-        "https://www.unlimit-tech.com/feed/",
-        "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
-        "https://www.skynewsarabia.com/web/rss",
-        "https://cnn.com/rss/cnn_topstories.rss",
-        "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.sciencedaily.com/rss/top/health.xml",
-        "https://www.nasa.gov/rss/dyn/breaking_news.rss"
+        "https://cointelegraph.com/rss", "https://decrypt.co/feed",
+        "https://cryptoslate.com/feed/", "https://bitcoinmagazine.com/.rss/full/",
+        "https://blockworks.co/feed/", "https://u.today/rss",
+        "https://cryptonews.com/news/feed/", "https://beincrypto.com/feed/",
+        "https://dailyhodl.com/feed/", "https://zycrypto.com/feed/"
     ]
-    
     while True:
-        print(f"\n⏰ Cycle Start: {datetime.now().strftime('%H:%M')}")
-        random.shuffle(feeds)
-        
+        print(f"\n⏰ Cycle: {datetime.now().strftime('%H:%M')}")
         for feed in feeds:
             try:
                 d = feedparser.parse(feed)
-                for entry in d.entries[:5]: 
+                for entry in d.entries[:2]:
                     if is_published_link(entry.link): continue
-                    if any(bad in entry.title for bad in BLACKLIST_KEYWORDS): continue
                     if is_duplicate_semantic(entry.title): continue
-                    
-                    print(f"   ⚡ Processing: {entry.title[:40]}...")
+                    print(f"   ⚡ Processing: {entry.title}")
                     
                     original_img = extract_image(entry)
-                    final_img_url = None
+                    final_img_url, is_generated = None, False
+                    
                     if original_img:
                         if check_image_safety(original_img):
-                            print("   ✅ Original Clean.")
+                            print("   ✅ Original OK.")
                             final_img_url = original_img
                         else:
-                            print("   ⚠️ Watermark detected. AI Gen...")
-                            final_img_url = get_ai_image_url(entry.title)
+                            print("   ⚠️ Watermark. Smart Gen...")
+                            final_img_url = get_smart_image_url(entry.title)
+                            is_generated = True
                     else:
-                        print("   🎨 AI Gen...")
-                        final_img_url = get_ai_image_url(entry.title)
+                        print("   🎨 Generating Image...")
+                        final_img_url = get_smart_image_url(entry.title)
+                        is_generated = True
                     
-                    fid = upload_final_image(final_img_url, entry.title)
+                    fid = upload_image_with_seo(final_img_url, entry.title)
+                    if not fid and is_generated:
+                        print("   🚨 Fallback (Rotation)...")
+                        for f_url in get_emergency_image_list(entry.title):
+                            fid = upload_image_with_seo(f_url, entry.title)
+                            if fid: break
                     
                     if fid:
-                        arabic_title, content = generate_arabic_content_package({'title': entry.title, 'summary': getattr(entry, 'summary', '')})
-                        
-                        if content and arabic_title:
-                            print(f"   📝 Generated Title: {arabic_title}")
-                            link = publish_to_wp(arabic_title, content, fid)
+                        content = generate_content({'title': entry.title, 'summary': getattr(entry, 'summary', '')})
+                        if content:
+                            link = publish_to_wp(entry.title, content, fid, is_generated)
                             if link:
                                 print(f"   ✅ Published: {link}")
                                 mark_published(entry.link, entry.title)
-                    
-                    time.sleep(10) 
-            except Exception as e: print(f"   ⚠️ Feed Error: {str(e)[:50]}")
-        
-        print("💤 Short Rest (10 min)...")
-        time.sleep(600)
+                    time.sleep(15)
+            except Exception as e: print(f"   ⚠️ Loop Error: {e}")
+        print("💤 Resting 15 min...")
+        time.sleep(900)
 
 if __name__ == "__main__":
     main()
